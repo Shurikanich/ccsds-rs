@@ -67,7 +67,7 @@ int ccsds_rs_decoder::process(const uint8_t* in, int ninput_items, const uint8_t
 
                     if (success)
                     {
-                        out = d_payload;
+                        memcpy((void*)out, d_payload, data_len());
                         *noutput_items = data_len();
                         if (d_verbose)
                         {

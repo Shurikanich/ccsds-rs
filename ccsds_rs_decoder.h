@@ -47,8 +47,9 @@ private:
     int d_bit_counter = 0;
     int d_byte_counter = 0;
 
-    uint8_t d_codeword[RS_DATA_LEN] = {0};
-    uint8_t d_payload[RS_PARITY_LEN] = {0};
+
+    uint8_t d_codeword[CODEWORD_MAX_LEN] = {0};
+    uint8_t d_payload[DATA_MAX_LEN] = {0};
 
     uint32_t d_num_frames_received = 0;
     uint32_t d_num_frames_decoded = 0;
