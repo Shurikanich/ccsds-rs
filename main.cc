@@ -63,11 +63,14 @@ constexpr bool verbose = false;
 constexpr int n_interleave = 8;
 constexpr bool dual_basis = true;
 
+typedef enum { ONLY_RS, ONLY_CC, RS_AND_CC } ccsds_mode_t;
+constexpr ccsds_mode_t mode = RS_AND_CC;
+
 int main(int argc, char* argv[])
 {
     // Read convolutional code config file
     string config_filename = argc > 1 ? argv[1] : "config.txt";
-    double snr_db = 100; // Default SNR in dB
+    double snr_db = 3.0; // Default SNR in dB
     string puncturing_type = "1/2";
     ifstream config(config_filename);
     if (config)
@@ -87,13 +90,13 @@ int main(int argc, char* argv[])
     }
 
     // Select puncturing
-    double code_rate;
+    double code_rate_cc;
     const int* puncture_C1_ptr = nullptr;
     const int* puncture_C2_ptr = nullptr;
     int puncture_pattern_len = 0;
     if (puncturing_type == "1/2")
     {
-        code_rate = CODE_RATE_12;
+        code_rate_cc = CODE_RATE_12;
         puncture_pattern_len = PUNCTURE_PATTERN_LEN_12;
         puncture_C1_ptr = puncture_C1_12;
         puncture_C2_ptr = puncture_C2_12;
@@ -104,14 +107,33 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    
+    switch (mode)
+    {
+      case ONLY_RS:
+        std::cout << "\033[1;34m[Mode: ONLY_RS]\033[0m\n";  // Blue bold
+        break;
+      case ONLY_CC:
+        std::cout << "\033[1;36m[Mode: ONLY_CC]\033[0m\n";  // Cyan bold
+        break;
+      case RS_AND_CC:
+        std::cout << "\033[1;33m[Mode: RS_AND_CC]\033[0m\n"; // Yellow bold
+        break;
+    }
+
     srand(time(nullptr));
     // RS Encode
     ccsds_rs_encoder encoder(rs_encode, interleave, scramble_val, printing, verbose, n_interleave, dual_basis);
     // RS Decode
     ccsds_rs_decoder decoder(0, rs_encode, interleave, scramble_val, verbose, printing, n_interleave, dual_basis);
 
-    const int payload_len = RS_DATA_LEN * n_interleave;
+    int payload_len = RS_DATA_LEN * n_interleave;
+
     const int frame_len = SYNC_WORD_LEN + RS_BLOCK_LEN * n_interleave;
+    if (mode == ONLY_CC)
+    {
+       payload_len = frame_len; // For ONLY_CC, payload is the same as frame length
+    }
     uint8_t input_payload[payload_len];
     uint8_t encoded_frame[frame_len];
     uint8_t decoded_output[payload_len];
@@ -124,120 +146,226 @@ int main(int argc, char* argv[])
 
     // BPSK modulation + AWGN
     double EbN0 = pow(10.0, snr_db / 10.0);
-    // TODO: adjust code rate for reed solomon
-    double N0 = 1.0 / (2.0 * EbN0 * code_rate);
+    double N0 = 0.0;
+    // code rate for RS
+    double code_rate_rs = static_cast<double>(RS_DATA_LEN) / static_cast<double>(RS_BLOCK_LEN);
+    switch (mode)
+    {
+      case ONLY_RS:
+        N0 = 1.0 / (2.0 * EbN0 * code_rate_rs);
+        break;
+      case ONLY_CC:
+        N0 = 1.0 / (2.0 * EbN0 * code_rate_cc);
+        break;
+      case RS_AND_CC:
+        N0 = 1.0 / (2.0 * EbN0 * code_rate_rs * code_rate_cc);
+        break;
+    }
+    
     double noise_std = sqrt(N0);
 
-    // Generate input data
-    for (int i = 0; i < payload_len; ++i)
+    // variables for encoding and decoding
+    int encoded_len = 0; 
+    int noutput_items = 0;
+
+    if (mode == RS_AND_CC || mode == ONLY_RS)
     {
-        input_payload[i] = rand() % 256;
+        // Generate input data
+        for (int i = 0; i < payload_len; ++i)
+        {
+            input_payload[i] = rand() % 256;
+        }
+        encoded_len = encoder.encode(input_payload, encoded_frame);
+
+        if (verbose)
+        {
+          std::cout << "\n--- encoded_frame ---\n";
+          print_bytes(encoded_frame, encoded_len);
+        }
     }
-
-    
-    int encoded_len = encoder.encode(input_payload, encoded_frame);
-
-    if (verbose)
+    else
     {
-        std::cout << "\n--- encoded_frame ---\n";
-        print_bytes(encoded_frame, encoded_len);
-    }
-
-    // Convolutional encode
-    // TODO: here check the size of conv_encoded
-    // encode produces 2 bits for every input bit. therefore, 8 bits pro byte * 2 bits = 16 times the size of the input
-    unsigned char conv_encoded[frame_len * 16] = {0};
-    unsigned char state = 0;
-    unsigned int conv_len = encode27(&state, conv_encoded, encoded_frame, encoded_len,
-                                     puncture_C1_ptr, puncture_C2_ptr, puncture_pattern_len);
-    if (verbose)
-    {
-        std::cout << "\n--- conv_encoded ---\n";
-        print_bytes(conv_encoded, conv_len);
-    }
-
-
-
-    double received[conv_len];
-    unsigned char soft[conv_len];
-    for (unsigned i = 0; i < conv_len; ++i)
-    {
-        double bpsk = (conv_encoded[i] == 0) ? 1.0 : -1.0;
-        received[i] = bpsk + gaussian_noise(noise_std);
-    }
-
-    // Convert to soft decisions
-
-    int idx = 0, c1 = 0, c2 = 0;
-    for (int i = 0; i < (int)conv_len; ++i)
-    {
-        bool is_c1 = (i % 2 == 0);
-        bool is_punct = is_c1 ? !puncture_C1_ptr[c1++ % puncture_pattern_len] : !puncture_C2_ptr[c2++ % puncture_pattern_len];
-        soft[i] = soft_decision(received[i], is_punct);
-    }
-
-
-    unsigned char conv_decoded[frame_len + 16] = {0}; // +16 for traceback bias
-    vitfilt27_decode(&vi, soft, conv_decoded, conv_len + 256);
-
-    if (verbose)
-    {
-        std::cout << "\n--- conv_decoded ---\n";
-        print_bytes(conv_decoded, frame_len + 16);
-
-        // Compare original encoded_frame and conv_decoded
-        std::cout << "\n--- Comparing conv_decoded with encoded_frame ---\n";
-
-        int bit_errors = 0;
-        int bit_count = 0;
+        // mode == ONLY_CC
+        // Generate random data for convolutional encoding
         for (int i = 0; i < frame_len; ++i)
         {
-            uint8_t original = encoded_frame[i];
-            uint8_t decoded  = conv_decoded[i + 16];  // skip traceback bias
-            uint8_t diff = original ^ decoded;
-
-          if (diff != 0)
-          {
-            std::cout << "Byte " << std::setw(4) << i << ": "
-                      << "original = 0x" << std::hex << std::setw(2) << std::setfill('0') << (int)original
-                      << ", decoded = 0x" << std::hex << std::setw(2) << std::setfill('0') << (int)decoded
-                      << ", diff bits = " << std::dec << std::bitset<8>(diff) << "\n";
-          }
-
-          for (int b = 0; b < 8; ++b)
-          {
-            if (diff & (1 << b)) ++bit_errors;
-            ++bit_count;
-          }
+            encoded_frame[i] = i % 0xFF; //rand() % 256;
         }
-  
-      std::cout << "\nBit error count: " << bit_errors << " / " << bit_count
-                << "  => BER = " << (double)bit_errors / bit_count << "\n";
+        encoded_len = frame_len;
+
+        if (0)
+        {
+          std::cout << "\n--- (Initial) encoded_frame in the case of ONLY_CC---\n";
+          print_bytes(encoded_frame, frame_len);
+        }
+
     }
 
-    int noutput_items = 0;
     
-#if 0
-    // Convert to bitstream for decoder
-    uint8_t bitstream[frame_len * 8];
-    for (int i = 0; i < encoded_len; ++i)
+
+    if (mode == RS_AND_CC || mode == ONLY_CC)
     {
+
+      // Convolutional encode
+      // TODO: here check the size of conv_encoded
+      // encode produces 2 bits for every input bit. therefore, 8 bits pro byte * 2 bits = 16 times the size of the input
+      unsigned char conv_encoded[frame_len * 16] = {0};
+      unsigned char state = 0;
+      unsigned int conv_len = encode27(&state, conv_encoded, encoded_frame, encoded_len,
+                                      puncture_C1_ptr, puncture_C2_ptr, puncture_pattern_len);
+      if (verbose)
+      {
+          std::cout << "\n--- conv_encoded ---\n";
+          print_bytes(conv_encoded, conv_len);
+      }
+
+
+
+      double received[conv_len];
+      unsigned char soft[conv_len];
+      for (unsigned i = 0; i < conv_len; ++i)
+      {
+          double bpsk = (conv_encoded[i] == 0) ? 1.0 : -1.0;
+          received[i] = bpsk + gaussian_noise(noise_std);
+      }
+
+      // Convert to soft decisions
+
+      int idx = 0, c1 = 0, c2 = 0;
+      for (int i = 0; i < (int)conv_len; ++i)
+      {
+          bool is_c1 = (i % 2 == 0);
+          bool is_punct = is_c1 ? !puncture_C1_ptr[c1++ % puncture_pattern_len] : !puncture_C2_ptr[c2++ % puncture_pattern_len];
+          soft[i] = soft_decision(received[i], is_punct);
+      }
+
+
+      unsigned char conv_decoded[frame_len + 16] = {0}; // +16 for traceback bias
+      vitfilt27_decode(&vi, soft, conv_decoded, conv_len + 256);
+
+      if (verbose)
+      {
+          std::cout << "\n--- conv_decoded ---\n";
+          print_bytes(conv_decoded, frame_len + 16);
+
+          // Compare original encoded_frame and conv_decoded
+          std::cout << "\n--- Comparing conv_decoded with encoded_frame ---\n";
+
+          int bit_errors = 0;
+          int bit_count = 0;
+          for (int i = 0; i < frame_len; ++i)
+          {
+              uint8_t original = encoded_frame[i];
+              uint8_t decoded  = conv_decoded[i + 16];  // skip traceback bias
+              uint8_t diff = original ^ decoded;
+
+            if (diff != 0)
+            {
+              std::cout << "Byte " << std::setw(4) << i << ": "
+                        << "original = 0x" << std::hex << std::setw(2) << std::setfill('0') << (int)original
+                        << ", decoded = 0x" << std::hex << std::setw(2) << std::setfill('0') << (int)decoded
+                        << ", diff bits = " << std::dec << std::bitset<8>(diff) << "\n";
+            }
+
+            for (int b = 0; b < 8; ++b)
+            {
+              if (diff & (1 << b)) ++bit_errors;
+              ++bit_count;
+            }
+          }
+    
+        std::cout << "\nBit error count: " << bit_errors << " / " << bit_count
+                  << "  => BER = " << (double)bit_errors / bit_count << "\n";
+      }
+
+      if (mode == RS_AND_CC)
+      {
+        decoder.decode_aligned_bytes(&conv_decoded[16], frame_len, decoded_output, &noutput_items);
+      }
+      else
+      {
+        // mode == ONLY_CC
+        for (int i = 0; i < frame_len; ++i)
+        {
+            decoded_output[i] = conv_decoded[16 + i]; // skip traceback bias
+        }
+        noutput_items = frame_len;
+
+        if (0)
+        {
+          std::cout << "\n--- decoded_output in the case of ONLY_CC---\n";
+          print_bytes(decoded_output, frame_len);
+        }
+
+      }
+    }
+    else
+    {
+      // RS Decode only mode == ONLY_RS
+      // Convert to bitstream for decoder
+      uint8_t bitstream[frame_len * 8];
+      for (int i = 0; i < encoded_len; ++i)
+      {
         for (int j = 0; j < 8; ++j)
         {
             bitstream[i * 8 + j] = (encoded_frame[i] >> (7 - j)) & 1;
         }
+      }
+
+      // todo need to be done moduzlation, demodulation and addition of the noise in the case  ONLY_RS
+
+      
+      
+      decoder.find_asm_and_decode(bitstream, encoded_len * 8, decoded_output, &noutput_items);
     }
+    
 
-    // Decode
-    ccsds_rs_decoder decoder(0, rs_encode, interleave, scramble_val, verbose, printing, n_interleave, dual_basis);
-    int noutput_items = 0;
-    decoder.process(bitstream, encoded_len * 8, decoded_output, &noutput_items);
-#endif
 
-    decoder.decode_aligned_bytes(&conv_decoded[16], frame_len, decoded_output, &noutput_items);
+    
 
     // Validate
-    bool match = (noutput_items == payload_len && memcmp(input_payload, decoded_output, payload_len) == 0);
+    bool match = false;
+    if (mode == ONLY_CC)
+    {
+
+        if (0)
+        {
+          std::cout << "\n (Second)--- encoded_frame in the case of ONLY_CC---\n";
+          print_bytes(encoded_frame, frame_len);
+        }
+
+        //if (1)
+        //{
+        //  std::cout << "\n--- decoded_output in the case of ONLY_CC---\n";
+        //  print_bytes(decoded_output, frame_len);
+        //}
+
+        match = (noutput_items == frame_len);
+        if (match)
+        {
+          for (int i = 0; i < frame_len; ++i)
+          {
+            if (encoded_frame[i] != decoded_output[i])
+            {
+              match = false;
+              std::cout << "Mismatch at byte " << i
+                        << ": encoded_frame = 0x" << std::hex << std::setw(2) << std::setfill('0') << (int)encoded_frame[i]
+                        << ", decoded_output = 0x" << std::hex << std::setw(2) << std::setfill('0') << (int)decoded_output[i]
+                        << std::dec << "\n";
+            }
+          }
+        }
+        else
+        {
+          std::cout << "Frame lengths differ: noutput_items = " << noutput_items << ", expected = " << frame_len << "\n";
+        }
+        match = (noutput_items == frame_len && memcmp(encoded_frame, decoded_output, frame_len) == 0);
+    }
+    else
+    {
+        match = (noutput_items == payload_len && memcmp(input_payload, decoded_output, payload_len) == 0);
+    }
+    //bool match = (noutput_items == payload_len && memcmp(input_payload, decoded_output, payload_len) == 0);
     if (match)
     std::cout << "\n\033[1;32m✅ Decode SUCCESS\033[0m\n";  // Green bold
     else
