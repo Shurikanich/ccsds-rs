@@ -30,7 +30,7 @@ ccsds_rs_decoder::ccsds_rs_decoder(int threshold,
     enter_sync_search();
 }
 
-int ccsds_rs_decoder::process(const uint8_t* in, int ninput_items, const uint8_t *out, int *noutput_items)
+int ccsds_rs_decoder::find_asm_and_decode(const uint8_t* in, int ninput_items, const uint8_t *out, int *noutput_items)
 {
     uint16_t count = 0;
     while (count < ninput_items)
@@ -81,6 +81,45 @@ int ccsds_rs_decoder::process(const uint8_t* in, int ninput_items, const uint8_t
         }
     }
     return ninput_items;
+}
+
+int ccsds_rs_decoder::decode_aligned_bytes(const uint8_t* in_bytes, int n_bytes, uint8_t* out, int* noutput_items)
+{
+    if (n_bytes < codeword_len())
+    {
+        if (d_verbose)
+            printf("Not enough input bytes: expected %d, got %d\n", codeword_len(), n_bytes);
+        *noutput_items = 0;
+        return 0;
+    }
+
+    // Copy input bytes directly into the RS decoder buffer
+    // skip sync sequence here, we assume that the input is already aligned in this function
+    memcpy(d_codeword, &in_bytes[SYNC_WORD_LEN], codeword_len());
+
+    if (d_verbose)
+    {
+        printf("\t[decode_aligned_bytes] loaded codeword of length %i\n", codeword_len());
+        if (d_printing)
+            print_bytes(d_codeword, codeword_len());
+    }
+
+    bool success = decode_frame();
+
+    if (success)
+    {
+        // TODO: remove unnecessary copy
+        memcpy(out, d_payload, data_len());
+        *noutput_items = data_len();
+        d_num_frames_decoded++;
+        d_num_subframes_decoded++;  // optional, if subframes are used
+        return codeword_len();  // number of input bytes consumed
+    }
+    else
+    {
+        *noutput_items = 0;
+        return 0;
+    }
 }
 
 void ccsds_rs_decoder::enter_sync_search()

@@ -17,7 +17,8 @@ public:
                      bool dual_basis);
     ~ccsds_rs_decoder() = default;
 
-    int process(const uint8_t* in, int ninput_items, const uint8_t* out, int* noutput_items);
+    int find_asm_and_decode(const uint8_t* in, int ninput_items, const uint8_t* out, int* noutput_items);
+    int decode_aligned_bytes(const uint8_t* in_bytes, int n_bytes, uint8_t* out, int* noutput_items);
 
     uint32_t num_frames_received() const { return d_num_frames_received; }
     uint32_t num_frames_decoded()  const { return d_num_frames_decoded; }
