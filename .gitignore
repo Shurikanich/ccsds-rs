@@ -9,6 +9,7 @@
 /obj/
 /_deps/
 /CMakeFiles/
+/res/
 
 # Ignore logs and temporary files
 *.log
