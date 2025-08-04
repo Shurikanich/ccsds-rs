@@ -327,7 +327,7 @@ int main(int argc, char* argv[])
         unsigned long total_errors = 0;
         unsigned long total_bits = 0;
 
-        unsigned long nbits = (num_bits * pow(2, EbN0_values[i] / 2.0));
+        unsigned long nbits = (num_bits * pow(2.4, EbN0_values[i] / 2.0));
 
       // Simulate until we process at least num_bits bits
       while (total_bits < nbits)
@@ -500,10 +500,26 @@ int main(int argc, char* argv[])
             }
           }
 
-          // todo need to be done moduzlation, demodulation and addition of the noise in the case  ONLY_RS
+          // BPSK modulation
+          vector<double> modulated(encoded_len);
+          for (size_t i = 0; i < encoded_len; ++i)
+          {
+            modulated[i] = bitstream[i] ? -1.0 : 1.0;
+          }
 
-          
-          
+          // Add AWGN noise
+          vector<double> received(modulated.size());
+          for (size_t i = 0; i < modulated.size(); ++i)
+          {
+            received[i] = modulated[i] + gaussian_noise(noise_std);
+          }
+
+          // Hard-decision demodulation
+          for (size_t i = 0; i < received.size(); ++i)
+          {
+              bitstream[i] = received[i] >= 0.0 ? 0 : 1;
+          }
+
           decoder.find_asm_and_decode(bitstream, encoded_len * 8, decoded_output, &noutput_items);
         }
         

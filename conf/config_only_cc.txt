@@ -1,7 +1,7 @@
 # Example config.txt:
-start_snr=-2
-end_snr=5
-step_snr=0.25
+start_snr=0
+end_snr=15
+step_snr=1
 output_file=results
 # cc code
 puncturing_type=1/2
@@ -17,3 +17,4 @@ dual_basis=true
 
 # mode : rs_and_cc, only_cc, only_rs
 mode=only_cc
+
