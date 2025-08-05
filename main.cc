@@ -308,6 +308,10 @@ int main(int argc, char* argv[])
     uint8_t encoded_frame[frame_len];
     uint8_t decoded_output[payload_len];
 
+    unsigned int conv_len = frame_len * 16; // 8 bits per byte * 2 bits per input bit for convolutional encoding
+
+ 
+
     // Convolutional decode initialization
     v27 vi;
     memset(&vi, 0, sizeof(v27));
@@ -394,18 +398,22 @@ int main(int argc, char* argv[])
         if (mode == RS_AND_CC || mode == ONLY_CC)
         {
 
+ 
+
           // Convolutional encode
           // TODO: here check the size of conv_encoded
           // encode produces 2 bits for every input bit. therefore, 8 bits pro byte * 2 bits = 16 times the size of the input
           unsigned char conv_encoded[frame_len * 16];
           unsigned char state = 0;
-          unsigned int conv_len = encode27(&state, conv_encoded, encoded_frame, encoded_len,
+          unsigned int conv_len_real = encode27(&state, conv_encoded, encoded_frame, encoded_len,
                                           puncture_C1_ptr, puncture_C2_ptr, puncture_pattern_len);
           if (verbose)
           {
               std::cout << "\n--- conv_encoded ---\n";
-              print_bytes(conv_encoded, conv_len);
+              print_bytes(conv_encoded, conv_len_real);
           }
+
+          
 
 
 
@@ -417,6 +425,8 @@ int main(int argc, char* argv[])
               received[i] = bpsk + gaussian_noise(noise_std);
           }
 
+
+
           // Convert to soft decisions
 
           int idx = 0, c1 = 0, c2 = 0;
@@ -427,9 +437,53 @@ int main(int argc, char* argv[])
               soft[i] = soft_decision(received[i], is_punct);
           }
 
+#if 0
+            int idx = 0;         // Index into received_signal array.
+            int c1_count = 0;    // Counter for C1 bits.
+            int c2_count = 0;    // Counter for C2 bits.
+            
+            for (int j = 0; j < (int)conv_len; j++)
+            {
+                if (j % 2 == 0)
+                {
+                    // Even index: C1 bit.
+                    bool is_punctured = !puncture_C1_ptr[c1_count % puncture_pattern_len];
+                    soft[j] = soft_decision(received[idx], is_punctured);
+                    if (!is_punctured)
+                    {
+                        idx++;
+                    }
+                    c1_count++;
+                } 
+                else
+                {
+                    // Odd index: C2 bit.
+                    bool is_punctured = !puncture_C2_ptr[c2_count % puncture_pattern_len];
+                    soft[j] = soft_decision(received[idx], is_punctured);
+                    if (!is_punctured)
+                    {
+                        idx++;
+                    }
+                    c2_count++;
+                }
+            }
+#endif
+
+
+
 
           unsigned char conv_decoded[frame_len + 16]; // +16 for traceback bias
+
+          //
+          //cout << "5.5" << endl;
+          //cout << "conv_len = " << conv_len << endl;
+          //cout << "frame_len = " << frame_len << endl;
+          //cout << "conv_decoded size = " << sizeof(conv_decoded) << endl;
+          //
+
           vitfilt27_decode(&vi, soft, conv_decoded, conv_len + 256);
+
+
 
           if (verbose)
           {

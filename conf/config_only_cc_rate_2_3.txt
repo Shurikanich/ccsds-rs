@@ -1,0 +1,20 @@
+# Example config.txt:
+start_snr=0
+end_snr=15
+step_snr=1
+output_file=results
+# cc code
+puncturing_type=2/3
+
+# rc code:
+rs_encode=true
+interleave=true
+scramble=true
+printing=false
+verbose=false
+n_interleave=8
+dual_basis=true
+
+# mode : rs_and_cc, only_cc, only_rs
+mode=only_cc
+
