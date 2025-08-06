@@ -305,10 +305,12 @@ int main(int argc, char* argv[])
        payload_len = frame_len; // For ONLY_CC, payload is the same as frame length
     }
     uint8_t input_payload[payload_len];
-    uint8_t encoded_frame[frame_len];
+    // add one since convolutional encoder not decodes the last byte make it always 0
+    uint8_t encoded_frame[frame_len + 1];
     uint8_t decoded_output[payload_len];
 
-    unsigned int conv_len = frame_len * 16; // 8 bits per byte * 2 bits per input bit for convolutional encoding
+    // add one since convolutional encoder not decodes the last byte make it always 0
+    unsigned int conv_len = (frame_len + 1) * 16; // 8 bits per byte * 2 bits per input bit for convolutional encoding
 
  
 
@@ -331,7 +333,9 @@ int main(int argc, char* argv[])
         unsigned long total_errors = 0;
         unsigned long total_bits = 0;
 
-        unsigned long nbits = (num_bits * pow(2.4, EbN0_values[i] / 2.0));
+        unsigned long nbits = num_bits * 100;//(num_bits * pow(2.0, EbN0_values[i] / 2.0));
+
+        unsigned last_pct = 0; // for the progress print
 
       // Simulate until we process at least num_bits bits
       while (total_bits < nbits)
@@ -367,7 +371,10 @@ int main(int argc, char* argv[])
             {
                 input_payload[i] = rand() % 256;
             }
-            encoded_len = encoder.encode(input_payload, encoded_frame);
+            // add one since convolutional encoder not decodes the last byte make it always 0
+            encoded_len = encoder.encode(input_payload, encoded_frame) + 1;
+            // here is the last byte always 0
+            encoded_frame[encoded_len - 1] = 0;
 
             if (verbose)
             {
@@ -381,9 +388,12 @@ int main(int argc, char* argv[])
             // Generate random data for convolutional encoding
             for (int i = 0; i < frame_len; ++i)
             {
-                encoded_frame[i] = i % 0xFF; //rand() % 256;
+                encoded_frame[i] = i % 256;//rand() % 256;
             }
-            encoded_len = frame_len;
+            encoded_len = frame_len + 1;
+            // add one since convolutional encoder not decodes the last byte make it always 0
+            // here is the last byte always 0
+            encoded_frame[encoded_len - 1] = 0;
 
             if (0)
             {
@@ -426,7 +436,7 @@ int main(int argc, char* argv[])
           }
 
 
-
+#if 1
           // Convert to soft decisions
 
           int idx = 0, c1 = 0, c2 = 0;
@@ -437,7 +447,7 @@ int main(int argc, char* argv[])
               soft[i] = soft_decision(received[i], is_punct);
           }
 
-#if 0
+#else
             int idx = 0;         // Index into received_signal array.
             int c1_count = 0;    // Counter for C1 bits.
             int c2_count = 0;    // Counter for C2 bits.
@@ -481,14 +491,14 @@ int main(int argc, char* argv[])
           //cout << "conv_decoded size = " << sizeof(conv_decoded) << endl;
           //
 
-          vitfilt27_decode(&vi, soft, conv_decoded, conv_len + 256);
+          vitfilt27_decode(&vi, soft, conv_decoded, conv_len_real + 256);
 
 
 
-          if (verbose)
+          if (0)
           {
-              std::cout << "\n--- conv_decoded ---\n";
-              print_bytes(conv_decoded, frame_len + 16);
+              //std::cout << "\n--- conv_decoded ---\n";
+              //print_bytes(conv_decoded, frame_len + 16);
 
               // Compare original encoded_frame and conv_decoded
               std::cout << "\n--- Comparing conv_decoded with encoded_frame ---\n";
@@ -598,9 +608,9 @@ int main(int argc, char* argv[])
             //  print_bytes(decoded_output, frame_len);
             //}
 
-#if 0
-            match = (noutput_items == frame_len);
-            if (match)
+#if 1
+            match = memcmp(encoded_frame, decoded_output, frame_len) == 0;
+            if (!match)
             {
               for (int i = 0; i < frame_len; ++i)
               {
@@ -614,10 +624,7 @@ int main(int argc, char* argv[])
                 }
               }
             }
-            else
-            {
-              std::cout << "Frame lengths differ: noutput_items = " << noutput_items << ", expected = " << frame_len << "\n";
-            }
+
 #endif
             //match = (noutput_items == frame_len && memcmp(encoded_frame, decoded_output, frame_len) == 0);
             calc_errors(encoded_frame, decoded_output, frame_len, total_errors, total_bits, 0);
@@ -634,7 +641,13 @@ int main(int argc, char* argv[])
         //std::cout << "\n\033[1;31m❌ Decode FAILED\033[0m\n";   // Red bold
         //return match ? 0 : 1;
 
-
+        // --- Progress print ---
+        unsigned pct = static_cast<unsigned>(100.0 * total_bits / nbits);
+        if (pct != last_pct && pct % 2 == 0)
+        { // print every 2%
+          cout << "\r[" << setw(3) << pct << "%] Done..." << flush;
+          last_pct = pct;
+        }
 
       }
       double ber = (double)total_errors / total_bits;

@@ -34,9 +34,23 @@ for k = 1:length(files)
         label = 'Unknown';
     end
 
+    % Extract code rate from filename, e.g., '_2_3' => 1/2
+    rate_match = regexp(filename, '_([0-9]+)_([0-9]+)', 'tokens');
+    if ~isempty(rate_match)
+        rate_num = rate_match{1}{2}; % denominator in the filename
+        rate_den = rate_match{1}{1}; % numerator in the filename
+        code_rate = [rate_den '/' rate_num];
+    else
+        code_rate = 'Unknown';
+    end
+
     % Extract additional parameters for more detailed labeling
     intlv_match = regexp(filename, 'intlv(\d+)', 'tokens');
-    intlv = intlv_match{1}{1};
+    if ~isempty(intlv_match)
+        intlv = intlv_match{1}{1};
+    else
+        intlv = 'N/A';
+    end
     basis = 'Dual Basis';
     if contains(filename, 'noDualBasis')
         basis = 'No Dual Basis';
@@ -44,7 +58,7 @@ for k = 1:length(files)
 
     % Plot
     semilogy(snr, ber, markers{mod(k-1,length(markers))+1}, 'LineWidth', 1.5, 'Color', colors(k,:),...
-        'DisplayName', [label ', intlv=' intlv ', ' basis]);
+        'DisplayName', [label ', Rate=' code_rate ', intlv=' intlv ', ' basis]);
 end
 
 xlabel('Eb/N0 (dB)');
