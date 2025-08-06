@@ -277,6 +277,22 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
+    if (mode == RS_AND_CC || mode == ONLY_CC)
+    {
+      std::cout << std::fixed << std::setprecision(3);
+      std::cout << "code_rate_cc = " << code_rate_cc << std::endl;
+
+      std::cout << "Puncture C1: [ ";
+      for (int i = 0; i < puncture_pattern_len; ++i)
+          std::cout << puncture_C1_ptr[i] << " ";
+      std::cout << "]" << std::endl;
+
+      std::cout << "Puncture C2: [ ";
+      for (int i = 0; i < puncture_pattern_len; ++i)
+          std::cout << puncture_C2_ptr[i] << " ";
+      std::cout << "]" << std::endl;
+    }
+
     
     switch (mode)
     {
@@ -309,10 +325,14 @@ int main(int argc, char* argv[])
     uint8_t encoded_frame[frame_len + 1];
     uint8_t decoded_output[payload_len];
 
+    //cout << "Payload length: " << payload_len << " bytes" << endl;
+    //cout << "Frame length: " << frame_len << " bytes" << endl;
+    //cout << "Encoded frame length: " << frame_len + 1 << " bytes (+1 for CC padding)" << endl;
+
     // add one since convolutional encoder not decodes the last byte make it always 0
     unsigned int conv_len = (frame_len + 1) * 16; // 8 bits per byte * 2 bits per input bit for convolutional encoding
 
- 
+    //cout << "Convolutional encoded length (conv_len): " << conv_len << " bits" << endl;
 
     // Convolutional decode initialization
     v27 vi;
@@ -413,10 +433,13 @@ int main(int argc, char* argv[])
           // Convolutional encode
           // TODO: here check the size of conv_encoded
           // encode produces 2 bits for every input bit. therefore, 8 bits pro byte * 2 bits = 16 times the size of the input
-          unsigned char conv_encoded[frame_len * 16];
+          unsigned char conv_encoded[(frame_len + 1) * 16];
           unsigned char state = 0;
           unsigned int conv_len_real = encode27(&state, conv_encoded, encoded_frame, encoded_len,
                                           puncture_C1_ptr, puncture_C2_ptr, puncture_pattern_len);
+
+          //cout << "Convolutional encoded length (conv_len_real): " << conv_len_real << " bits" << endl;
+
           if (verbose)
           {
               std::cout << "\n--- conv_encoded ---\n";
@@ -429,14 +452,14 @@ int main(int argc, char* argv[])
 
           double received[conv_len];
           unsigned char soft[conv_len];
-          for (unsigned i = 0; i < conv_len; ++i)
+          for (unsigned i = 0; i < conv_len_real; ++i)
           {
               double bpsk = (conv_encoded[i] == 0) ? 1.0 : -1.0;
               received[i] = bpsk + gaussian_noise(noise_std);
           }
 
 
-#if 1
+#if 0
           // Convert to soft decisions
 
           int idx = 0, c1 = 0, c2 = 0;
@@ -491,7 +514,7 @@ int main(int argc, char* argv[])
           //cout << "conv_decoded size = " << sizeof(conv_decoded) << endl;
           //
 
-          vitfilt27_decode(&vi, soft, conv_decoded, conv_len_real + 256);
+          vitfilt27_decode(&vi, soft, conv_decoded, conv_len + 256);
 
 
 
@@ -608,7 +631,7 @@ int main(int argc, char* argv[])
             //  print_bytes(decoded_output, frame_len);
             //}
 
-#if 1
+#if 0
             match = memcmp(encoded_frame, decoded_output, frame_len) == 0;
             if (!match)
             {
@@ -648,7 +671,6 @@ int main(int argc, char* argv[])
           cout << "\r[" << setw(3) << pct << "%] Done..." << flush;
           last_pct = pct;
         }
-
       }
       double ber = (double)total_errors / total_bits;
       cout << fixed << setprecision(2) << "Eb/N0 (dB) = " << EbN0_values[i] << ", BER = " << scientific << setprecision(2) << ber << endl;
