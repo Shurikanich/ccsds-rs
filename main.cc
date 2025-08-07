@@ -322,15 +322,17 @@ int main(int argc, char* argv[])
     }
     uint8_t input_payload[payload_len];
     // add one since convolutional encoder not decodes the last byte make it always 0
-    uint8_t encoded_frame[frame_len + 1];
+    // 3 zeros at the end  and 5 at the beginning
+    uint8_t encoded_frame[frame_len + 8];
     uint8_t decoded_output[payload_len];
 
     //cout << "Payload length: " << payload_len << " bytes" << endl;
     //cout << "Frame length: " << frame_len << " bytes" << endl;
     //cout << "Encoded frame length: " << frame_len + 1 << " bytes (+1 for CC padding)" << endl;
 
-    // add one since convolutional encoder not decodes the last byte make it always 0
-    unsigned int conv_len = (frame_len + 1) * 16; // 8 bits per byte * 2 bits per input bit for convolutional encoding
+    // add one since convolutional encoder not decodes the last 3 bytes make it always 0
+    // 3 zeros at the end and 5 at the beginning
+    unsigned int conv_len = (frame_len + 8) * 16; // 8 bits per byte * 2 bits per input bit for convolutional encoding
 
     //cout << "Convolutional encoded length (conv_len): " << conv_len << " bits" << endl;
 
@@ -353,7 +355,8 @@ int main(int argc, char* argv[])
         unsigned long total_errors = 0;
         unsigned long total_bits = 0;
 
-        unsigned long nbits = num_bits * 100;//(num_bits * pow(2.0, EbN0_values[i] / 2.0));
+        unsigned long nbits = (num_bits * pow(2.0, EbN0_values[i] / 2.0));
+        //unsigned long nbits = (num_bits * 100);
 
         unsigned last_pct = 0; // for the progress print
 
@@ -391,10 +394,15 @@ int main(int argc, char* argv[])
             {
                 input_payload[i] = rand() % 256;
             }
-            // add one since convolutional encoder not decodes the last byte make it always 0
-            encoded_len = encoder.encode(input_payload, encoded_frame) + 1;
+            // make 3 byte  always 0 and 5 bytes at the beginning
+            encoded_len = encoder.encode(input_payload, encoded_frame) + 8;
             // here is the last byte always 0
             encoded_frame[encoded_len - 1] = 0;
+            encoded_frame[encoded_len - 2] = 0;
+            encoded_frame[encoded_len - 3] = 0;
+
+
+
 
             if (verbose)
             {
@@ -408,12 +416,20 @@ int main(int argc, char* argv[])
             // Generate random data for convolutional encoding
             for (int i = 0; i < frame_len; ++i)
             {
-                encoded_frame[i] = i % 256;//rand() % 256;
+                encoded_frame[i] = rand() % 256;
             }
-            encoded_len = frame_len + 1;
-            // add one since convolutional encoder not decodes the last byte make it always 0
-            // here is the last byte always 0
+            encoded_len = frame_len + 8;
+            // make 3 byte  always 0 and 5 bytes at the beginning
             encoded_frame[encoded_len - 1] = 0;
+            encoded_frame[encoded_len - 2] = 0;
+            encoded_frame[encoded_len - 3] = 0;
+
+            // Add 5 zeros at the beginning
+            encoded_frame[0] = 0;
+            encoded_frame[1] = 0;
+            encoded_frame[2] = 0;
+            encoded_frame[3] = 0;
+            encoded_frame[4] = 0;
 
             if (0)
             {
@@ -427,13 +443,11 @@ int main(int argc, char* argv[])
 
         if (mode == RS_AND_CC || mode == ONLY_CC)
         {
-
- 
-
           // Convolutional encode
           // TODO: here check the size of conv_encoded
           // encode produces 2 bits for every input bit. therefore, 8 bits pro byte * 2 bits = 16 times the size of the input
-          unsigned char conv_encoded[(frame_len + 1) * 16];
+          // 5 bytes at the beginning and 3 (totally 8) at the end are always 0
+          unsigned char conv_encoded[(frame_len + 8) * 16];
           unsigned char state = 0;
           unsigned int conv_len_real = encode27(&state, conv_encoded, encoded_frame, encoded_len,
                                           puncture_C1_ptr, puncture_C2_ptr, puncture_pattern_len);
@@ -516,7 +530,12 @@ int main(int argc, char* argv[])
 
           vitfilt27_decode(&vi, soft, conv_decoded, conv_len + 256);
 
-
+          // first 5 bytes at thhe beginning are set always to 0
+          conv_decoded[0 + 16] = 0;
+          conv_decoded[1 + 16] = 0;
+          conv_decoded[2 + 16] = 0;
+          conv_decoded[3 + 16] = 0;
+          conv_decoded[4 + 16] = 0;
 
           if (0)
           {
@@ -524,7 +543,7 @@ int main(int argc, char* argv[])
               //print_bytes(conv_decoded, frame_len + 16);
 
               // Compare original encoded_frame and conv_decoded
-              std::cout << "\n--- Comparing conv_decoded with encoded_frame ---\n";
+              // std::cout << "\n--- Comparing conv_decoded with encoded_frame ---\n";
 
               int bit_errors = 0;
               int bit_count = 0;
@@ -549,8 +568,7 @@ int main(int argc, char* argv[])
                 }
               }
         
-            std::cout << "\nBit error count: " << bit_errors << " / " << bit_count
-                      << "  => BER = " << (double)bit_errors / bit_count << "\n";
+            // std::cout << "\nBit error count: " << bit_errors << " / " << bit_count << "  => BER = " << (double)bit_errors / bit_count << "\n";
           }
 
           if (mode == RS_AND_CC)
@@ -571,7 +589,6 @@ int main(int argc, char* argv[])
               std::cout << "\n--- decoded_output in the case of ONLY_CC---\n";
               print_bytes(decoded_output, frame_len);
             }
-
           }
         }
         else
@@ -610,10 +627,6 @@ int main(int argc, char* argv[])
           decoder.find_asm_and_decode(bitstream, encoded_len * 8, decoded_output, &noutput_items);
         }
         
-
-
-        
-
         // Validate
         bool match = false;
         if (mode == ONLY_CC)
