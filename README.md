@@ -3,9 +3,9 @@
 Simulation chain for the CCSDS Reed-Solomon (RS) encoder and decoder, including a convolutional code according to the CCSDS TM standard.
 The convolutional code can be configured for different puncturing rates: 1/2, 2/3, 3/4, 5/6, 7/8.
 The simulation chain supports three different modes:
-	•	only_cc – only convolutional code
-	•	only_rs – only Reed-Solomon code
-	•	rs_and_cc – concatenated convolutional + Reed-Solomon code
+	- only_cc – only convolutional code
+	- only_rs – only Reed-Solomon code
+	- rs_and_cc – concatenated convolutional + Reed-Solomon code
 
 ## 🧪 How to compile
 ```bash
